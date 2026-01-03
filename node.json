@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "question": "Jaka jest stolica Polski?",
+    "answers": ["Kraków", "Warszawa", "Gdańsk", "Poznań"],
+    "correctIndex": 1
+  },
+  {
+    "id": 2,
+    "question": "Ile to jest 2 + 2?",
+    "answers": ["3", "5", "4", "22"],
+    "correctIndex": 2
+  }
+]
