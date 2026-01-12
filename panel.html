@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel Admina - Quiz Relacyjny</title>
+    <style>
+        /* (Style bez zmian, są OK) */
+        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; background-color: #f4f4f4; padding: 20px;}
+        .container { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        input, select, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 15px; }
+        .item-list li { background: #eee; margin: 5px 0; padding: 10px; display: flex; justify-content: space-between; }
+        .correct-ans { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Kategorie</h2>
+        <input type="text" id="catName" placeholder="Nazwa kategorii">
+        <button onclick="addCategory()">Dodaj Kategorię</button>
+    </div>
+
+    <div class="container">
+        <h2 id="formTitle">Dodaj Pytanie</h2>
+        <input type="hidden" id="questionId">
+        
+        <label>Pytanie:</label>
+        <input type="text" id="qText">
+
+        <label>Kategoria:</label>
+        <select id="qCategory"></select>
+
+        <label>Odpowiedzi (zaznacz kropką poprawną):</label>
+        <div style="display: flex; gap: 5px; align-items: center; margin-top: 5px;">
+            <input type="radio" name="correct" value="0" style="width:auto;" checked> 
+            <input type="text" id="ans0" placeholder="Odpowiedź A">
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center; margin-top: 5px;">
+            <input type="radio" name="correct" value="1" style="width:auto;"> 
+            <input type="text" id="ans1" placeholder="Odpowiedź B">
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center; margin-top: 5px;">
+            <input type="radio" name="correct" value="2" style="width:auto;"> 
+            <input type="text" id="ans2" placeholder="Odpowiedź C">
+        </div>
+        <div style="display: flex; gap: 5px; align-items: center; margin-top: 5px;">
+            <input type="radio" name="correct" value="3" style="width:auto;"> 
+            <input type="text" id="ans3" placeholder="Odpowiedź D">
+        </div>
+
+        <button onclick="saveQuestion()">Zapisz</button>
+        <button onclick="resetForm()" style="background:#6c757d; display:none;" id="cancelBtn">Anuluj</button>
+    </div>
+
+    <div class="container">
+        <h2>Lista Pytań</h2>
+        <ul id="questionsList" class="item-list"></ul>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCategories();
+            loadQuestions();
+        });
+
+        async function loadCategories() {
+            const res = await fetch(`${API_URL}/categories`);
+            const categories = await res.json();
+            const select = document.getElementById('qCategory');
+            select.innerHTML = '<option value="">Wybierz...</option>';
+            categories.forEach(c => select.innerHTML += `<option value="${c.id}">${c.name}</option>`);
+        }
+
+        async function addCategory() {
+            const name = document.getElementById('catName').value;
+            if(!name) return;
+            await fetch(`${API_URL}/categories`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name })
+            });
+            document.getElementById('catName').value = '';
+            loadCategories();
+        }
+
+        async function loadQuestions() {
+            const res = await fetch(`${API_URL}/questions`);
+            const questions = await res.json();
+            const list = document.getElementById('questionsList');
+            list.innerHTML = '';
+
+            questions.forEach(q => {
+                // Znajdź poprawną odpowiedź do wyświetlenia
+                const correctAns = q.answers.find(a => a.isCorrect);
+                const correctText = correctAns ? correctAns.text : 'Brak';
+
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div>
+                        <strong>[${q.category || '-'}]</strong> ${q.question}<br>
+                        <small class="correct-ans">Poprawna: ${correctText}</small>
+                    </div>
+                    <div>
+                        <button style="margin:0; background:#ffc107; color:black" onclick='editQuestion(${JSON.stringify(q)})'>Edytuj</button>
+                        <button style="margin:0; background:#dc3545;" onclick="deleteQuestion(${q.id})">Usuń</button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        async function saveQuestion() {
+            const id = document.getElementById('questionId').value;
+            const question = document.getElementById('qText').value;
+            const categoryId = document.getElementById('qCategory').value;
+            
+            // Pobieramy indeks zaznaczonego radio buttona
+            const correctIndex = document.querySelector('input[name="correct"]:checked').value;
+            
+            // Budujemy tablicę obiektów odpowiedzi
+            const answers = [];
+            for(let i=0; i<4; i++) {
+                answers.push({
+                    text: document.getElementById('ans'+i).value,
+                    isCorrect: (i == correctIndex) // true jeśli index się zgadza
+                });
+            }
+
+            const payload = { question, answers, categoryId };
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `${API_URL}/questions/${id}` : `${API_URL}/questions`;
+
+            await fetch(url, {
+                method: method,
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            resetForm();
+            loadQuestions();
+        }
+
+        async function deleteQuestion(id) {
+            if(!confirm('Usunąć?')) return;
+            await fetch(`${API_URL}/questions/${id}`, { method: 'DELETE' });
+            loadQuestions();
+        }
+
+        function editQuestion(q) {
+            document.getElementById('questionId').value = q.id;
+            document.getElementById('qText').value = q.question;
+            // q.category to nazwa, ale select potrzebuje ID. 
+            // W idealnym świecie API powinno zwracać też category_id w obiekcie pytania.
+            // Tutaj musisz ręcznie wybrać kategorię lub poprawić zapytanie SQL żeby zwracało category_id.
+            
+            // Wypełnianie inputów odpowiedzi
+            q.answers.forEach((ans, index) => {
+                if(index < 4) {
+                    document.getElementById('ans'+index).value = ans.text;
+                    if(ans.isCorrect) {
+                        // Zaznacz odpowiedni radio button
+                        const radios = document.getElementsByName('correct');
+                        radios[index].checked = true;
+                    }
+                }
+            });
+
+            document.getElementById('formTitle').innerText = "Edytuj Pytanie";
+            document.getElementById('cancelBtn').style.display = 'inline-block';
+        }
+
+        function resetForm() {
+            document.getElementById('questionId').value = '';
+            document.getElementById('qText').value = '';
+            document.getElementById('ans0').value = '';
+            document.getElementById('ans1').value = '';
+            document.getElementById('ans2').value = '';
+            document.getElementById('ans3').value = '';
+            document.querySelector('input[name="correct"][value="0"]').checked = true;
+            document.getElementById('formTitle').innerText = "Dodaj Pytanie";
+            document.getElementById('cancelBtn').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
