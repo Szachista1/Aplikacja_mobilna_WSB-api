@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <title>Panel Admina - Quiz Relacyjny</title>
     <style>
-        /* (Style bez zmian, są OK) */
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; background-color: #f4f4f4; padding: 20px;}
         .container { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         input, select, button { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; }
         button { background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 15px; }
+        button:hover { background-color: #0056b3; }
         .item-list li { background: #eee; margin: 5px 0; padding: 10px; display: flex; justify-content: space-between; }
         .correct-ans { color: green; font-weight: bold; }
     </style>
@@ -26,10 +26,12 @@
         <input type="hidden" id="questionId">
         
         <label>Pytanie:</label>
-        <input type="text" id="qText">
+        <input type="text" id="qText" placeholder="Treść pytania...">
 
         <label>Kategoria:</label>
-        <select id="qCategory"></select>
+        <select id="qCategory">
+            <option value="">Wybierz...</option>
+        </select>
 
         <label>Odpowiedzi (zaznacz kropką poprawną):</label>
         <div style="display: flex; gap: 5px; align-items: center; margin-top: 5px;">
@@ -50,7 +52,7 @@
         </div>
 
         <button onclick="saveQuestion()">Zapisz</button>
-        <button onclick="resetForm()" style="background:#6c757d; display:none;" id="cancelBtn">Anuluj</button>
+        <button onclick="resetForm()" style="background:#6c757d; display:none;" id="cancelBtn">Anuluj / Wyczyść</button>
     </div>
 
     <div class="container">
@@ -67,16 +69,26 @@
         });
 
         async function loadCategories() {
-            const res = await fetch(`${API_URL}/categories`);
-            const categories = await res.json();
-            const select = document.getElementById('qCategory');
-            select.innerHTML = '<option value="">Wybierz...</option>';
-            categories.forEach(c => select.innerHTML += `<option value="${c.id}">${c.name}</option>`);
+            try {
+                const res = await fetch(`${API_URL}/categories`);
+                const categories = await res.json();
+                const select = document.getElementById('qCategory');
+                // Zachowaj ewentualnie wybraną wartość, jeśli odświeżamy listę
+                const currentValue = select.value;
+                
+                select.innerHTML = '<option value="">Wybierz...</option>';
+                categories.forEach(c => select.innerHTML += `<option value="${c.id}">${c.name}</option>`);
+                
+                if (currentValue) select.value = currentValue;
+            } catch (e) {
+                console.error("Błąd ładowania kategorii:", e);
+            }
         }
 
         async function addCategory() {
             const name = document.getElementById('catName').value;
-            if(!name) return;
+            if(!name) return alert("Podaj nazwę kategorii!");
+            
             await fetch(`${API_URL}/categories`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -93,14 +105,17 @@
             list.innerHTML = '';
 
             questions.forEach(q => {
-                // Znajdź poprawną odpowiedź do wyświetlenia
                 const correctAns = q.answers.find(a => a.isCorrect);
                 const correctText = correctAns ? correctAns.text : 'Brak';
 
                 const li = document.createElement('li');
+                // Przekazujemy obiekt q do funkcji editQuestion jako string JSON
+                // Zamieniamy cudzysłowy w stringu, aby nie popsuć HTML
+                const qString = JSON.stringify(q).replace(/"/g, '&quot;');
+                
                 li.innerHTML = `
                     <div>
-                        <strong>[${q.category || '-'}]</strong> ${q.question}<br>
+                        <strong>[${q.category || 'Brak'}]</strong> ${q.question}<br>
                         <small class="correct-ans">Poprawna: ${correctText}</small>
                     </div>
                     <div>
@@ -117,15 +132,33 @@
             const question = document.getElementById('qText').value;
             const categoryId = document.getElementById('qCategory').value;
             
-            // Pobieramy indeks zaznaczonego radio buttona
-            const correctIndex = document.querySelector('input[name="correct"]:checked').value;
+            // --- WALIDACJA ---
+            if (!question.trim()) {
+                alert("Wpisz treść pytania!");
+                return;
+            }
+            if (!categoryId) {
+                alert("Musisz wybrać kategorię!");
+                return;
+            }
+
+            const correctInput = document.querySelector('input[name="correct"]:checked');
+            if (!correctInput) {
+                alert("Zaznacz poprawną odpowiedź!");
+                return;
+            }
+            const correctIndex = correctInput.value;
             
-            // Budujemy tablicę obiektów odpowiedzi
             const answers = [];
             for(let i=0; i<4; i++) {
+                const ansText = document.getElementById('ans'+i).value;
+                if (!ansText.trim()) {
+                    alert("Uzupełnij wszystkie odpowiedzi!");
+                    return;
+                }
                 answers.push({
-                    text: document.getElementById('ans'+i).value,
-                    isCorrect: (i == correctIndex) // true jeśli index się zgadza
+                    text: ansText,
+                    isCorrect: (i == correctIndex)
                 });
             }
 
@@ -133,18 +166,29 @@
             const method = id ? 'PUT' : 'POST';
             const url = id ? `${API_URL}/questions/${id}` : `${API_URL}/questions`;
 
-            await fetch(url, {
-                method: method,
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
+            try {
+                const res = await fetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
 
-            resetForm();
-            loadQuestions();
+                if (!res.ok) {
+                    const errData = await res.json();
+                    alert("Błąd serwera: " + (errData.error || errData.message || "Nieznany błąd"));
+                    return;
+                }
+
+                resetForm();
+                loadQuestions();
+            } catch (err) {
+                alert("Błąd połączenia z serwerem.");
+                console.error(err);
+            }
         }
 
         async function deleteQuestion(id) {
-            if(!confirm('Usunąć?')) return;
+            if(!confirm('Usunąć to pytanie?')) return;
             await fetch(`${API_URL}/questions/${id}`, { method: 'DELETE' });
             loadQuestions();
         }
@@ -152,34 +196,42 @@
         function editQuestion(q) {
             document.getElementById('questionId').value = q.id;
             document.getElementById('qText').value = q.question;
-            // q.category to nazwa, ale select potrzebuje ID. 
-            // W idealnym świecie API powinno zwracać też category_id w obiekcie pytania.
-            // Tutaj musisz ręcznie wybrać kategorię lub poprawić zapytanie SQL żeby zwracało category_id.
-            
-            // Wypełnianie inputów odpowiedzi
+            document.getElementById('qCategory').value = q.categoryId; // Ustawienie kategorii
+
             q.answers.forEach((ans, index) => {
                 if(index < 4) {
                     document.getElementById('ans'+index).value = ans.text;
                     if(ans.isCorrect) {
-                        // Zaznacz odpowiedni radio button
                         const radios = document.getElementsByName('correct');
-                        radios[index].checked = true;
+                        if (radios[index]) radios[index].checked = true;
                     }
                 }
             });
 
             document.getElementById('formTitle').innerText = "Edytuj Pytanie";
             document.getElementById('cancelBtn').style.display = 'inline-block';
+            
+            // Scroll do góry, żeby użytkownik widział formularz
+            window.scrollTo(0, 0);
         }
 
         function resetForm() {
             document.getElementById('questionId').value = '';
             document.getElementById('qText').value = '';
-            document.getElementById('ans0').value = '';
-            document.getElementById('ans1').value = '';
-            document.getElementById('ans2').value = '';
-            document.getElementById('ans3').value = '';
-            document.querySelector('input[name="correct"][value="0"]').checked = true;
+            
+            // Czyścimy odpowiedzi
+            for(let i=0; i<4; i++) {
+                document.getElementById('ans'+i).value = '';
+            }
+            
+            // Resetuj radio na pierwsze
+            const radios = document.getElementsByName('correct');
+            if(radios[0]) radios[0].checked = true;
+
+            // UWAGA: Nie czyścimy kategorii (qCategory), żeby łatwiej dodawać pytania seriami do tej samej kategorii.
+            // Jeśli chcesz czyścić też kategorię, odkomentuj poniższą linię:
+            // document.getElementById('qCategory').value = '';
+
             document.getElementById('formTitle').innerText = "Dodaj Pytanie";
             document.getElementById('cancelBtn').style.display = 'none';
         }
